@@ -17,7 +17,7 @@
 # make push IMAGE_NAME=your_image_name TAG=your_tag
 
 # Default values for arguments
-ARTIFACTORY_URL ?= artifactory-kfs.habana-labs.com
+ARTIFACTORY_URL ?= artifactory-kfs.iil.labsad.intel.com
 RELEASE_VERSION ?= master
 RELEASE_BUILD_ID ?= no_release_build_id
 BUILD_OS ?= generic
@@ -28,33 +28,32 @@ DOCKER_REPO ?= docker-local
 IMAGE_NAME ?= $(ARTIFACTORY_URL)/$(DOCKER_REPO)/$(RELEASE_VERSION)/$(BUILD_OS)/habanalabs/driver-installer
 TAG ?= $(RELEASE_VERSION)-$(RELEASE_BUILD_ID)
 
-HABANALABS_INSTALL_SCRIPT = hl-generic-prod-local/$(RELEASE_VERSION)/$(RELEASE_BUILD_ID)/installer/habanalabs-installer.sh
+INSTALL_SCRIPT ?= hl-generic-prod-local/$(RELEASE_VERSION)/$(RELEASE_BUILD_ID)/installer/habanalabs-installer.sh
+SCRIPT_URL="https://${ARTIFACTORY_URL}/artifactory/${INSTALL_SCRIPT}"
 
 # Makefile targets
 .PHONY: build push test
 
-build:
-ifneq ($(BUILD_OS),generic)
-	echo $(ARTIFACTORY_URL)
-	echo $(HABANALABS_INSTALL_SCRIPT)
-	docker build \
-		--build-arg ARTIFACTORY_URL=$(ARTIFACTORY_URL) \
-		--build-arg HABANALABS_INSTALL_SCRIPT=$(HABANALABS_INSTALL_SCRIPT) \
-		-t $(IMAGE_NAME):$(TAG) \
-		-f $(BUILD_OS)/Dockerfile \
-		.
-else
+docker-build-%: ## Build your project for a specific OS and architecture (e.g., build-linux-arm64)
+	$(eval SUFFIX=$(word 1,$(subst production,,$*)))
+	wget -Y off ${SCRIPT_URL} -O ./scripts/habanalabs-installer.sh
 	docker build \
 		--build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` \
 		--build-arg VERSION="$(RELEASE_VERSION)-${RELEASE_BUILD_ID}" \
-		--build-arg SCRIPT_URL="https://${ARTIFACTORY_URL}/artifactory/${HABANALABS_INSTALL_SCRIPT}" \
-		--tag $(IMAGE_NAME):$(TAG) \
+		--tag $(IMAGE_NAME):$(TAG)$(SUFFIX) \
 		--file $(BUILD_OS)/Dockerfile \
+		--target $* \
 		.
-endif
 
-push:
-	docker push $(IMAGE_NAME):$(TAG)
+build: docker-build-production docker-build-ubi9
+	echo $(ARTIFACTORY_URL)
+	echo $(HABANALABS_INSTALL_SCRIPT)
+
+docker-push-%:
+	$(eval SUFFIX=$(word 1,$(subst production,,$*)))
+	docker push $(IMAGE_NAME):$(TAG)$(SUFFIX)
+
+push: docker-push-production docker-push-ubi9
 
 test:
 	IMAGE=$(IMAGE_NAME):$(TAG) ./scripts/tests.sh
